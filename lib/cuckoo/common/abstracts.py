@@ -320,6 +320,14 @@ class Machinery:
         """
         raise NotImplementedError
 
+    def callback(self, task_status, machine: Machine):
+        """Callable directly post-analysis before AnalysisManager thread removed. Can be overriden in sub-classes.
+        @param machine: machine attached to AnalysisManager executing the callback.
+        @param task_status: machine's task status.
+            Possible values: database.TASK_COMPLETED, database.TASK_PENDING
+        """
+        return
+
     def _list(self):
         """Lists virtual machines configured.
         @raise NotImplementedError: this method is abstract.

@@ -307,6 +307,13 @@ class MachineryManager:
     def stop_machine(self, machine: Machine) -> None:
         self.machinery.stop(machine.label)
 
+    def run_callback(self, task_status, machine: Machine) -> None:
+        """For machinery backends that require an action to be performed post-analysis but
+        before the corresponding AnalysisManager thread is removed. For other types of
+        machinery, this is basically a noop. This is called from the AnalysisManager thread.
+        """
+        self.machinery.callback(task_status, machine)
+
     def thr_maintain_scaling_bounded_semaphore(self) -> None:
         """Maintain the limit of the ScalingBoundedSemaphore if one is being used."""
         if not isinstance(self.machine_lock, ScalingBoundedSemaphore) or not self.cfg.cuckoo.scaling_semaphore_update_timer:
