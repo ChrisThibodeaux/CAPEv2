@@ -27,7 +27,7 @@ from lib.cuckoo.common.abstracts import Machinery
 from lib.cuckoo.common.config import Config
 from lib.cuckoo.common.constants import CUCKOO_GUEST_PORT
 from lib.cuckoo.common.exceptions import CuckooCriticalError, CuckooDependencyError, CuckooGuestCriticalTimeout, CuckooMachineError
-from lib.cuckoo.core.database import TASK_PENDING, Machine
+from lib.cuckoo.core.database import TASK_PENDING, TASK_COMPLETED, Machine
 
 # Only log INFO or higher from imported python packages
 logging.getLogger("adal-python").setLevel(logging.INFO)
@@ -483,45 +483,57 @@ class Azure(Machinery):
 
     def stop(self, label=None):
         """
-        If the VMSS is NOT in the "scaling-down" state, reimage it.
-        @param label: virtual machine label
-        @return: End method call
+        Overloading abstracts.py:stop()
+        Defer VM reimage or deletion until after analysis completion.
         """
-        log.debug(f"Stopping machine '{label}'")
-        # Parse the tag and instance id out to confirm which VMSS to modify
-        vmss_name, instance_id = label.split("_")
-        # If we aren't scaling down, then reimage
-        if not machine_pools[vmss_name]["is_scaling_down"]:
-            with reimage_lock:
-                reimage_vm_list.append({"vmss": vmss_name, "id": instance_id, "time_added": time.time()})
-            # Two stages until the VM can be consider reimaged
-            # Stage 1: Label is not in queue-list
-            # Stage 2: Label is not in vms_currently_being_reimaged
-            # It can be assumed that at this point in time that the label is in the reimage_vm_list
-            label_in_reimage_vm_list = True
-            while label_in_reimage_vm_list or label in vms_currently_being_reimaged:
-                time.sleep(5)
-                with reimage_lock:
-                    label_in_reimage_vm_list = label in [f"{vm['vmss']}_{vm['id']}" for vm in reimage_vm_list]
+        pass
 
     def release(self, machine: Machine):
         """
-        Delete machine if its VMSS is in the "scaling-down" state, it was found to be absent from its VMSS during
-        reimaging, or reimaging timed out.
-        Otherwise, release the successfully reimaged machine.
-        @param label: machine label.
+        Overloading abstracts.py:release()
+        Defer unlocking VM until after analysis completion.
         """
-        vmss_name = machine.label.split("_")[0]
-        if machine.label in vms_absent_from_vmss:
-            self.delete_machine(machine.label, delete_from_vmss=False)
-            vms_absent_from_vmss.remove(machine.label)
-        elif machine.label in vms_timed_out_being_reimaged:
-            self.delete_machine(machine.label)
-            vms_timed_out_being_reimaged.remove(machine.label)
-        elif machine_pools[vmss_name]["is_scaling_down"]:
-            self.delete_machine(machine.label)
-        else:
-            _ = super(Azure, self).release(machine)
+        pass
+
+    def callback(self, task_status, machine: Machine):
+        """
+        If `task_status` is TASK_PENDING:
+            VM 'turned dead' and was removed from the DB and queued for deletion from VMSS.
+        If `task_status` is TASK_COMPLETED:
+            If VMSS isn't scaling down, attempt VM reimage.
+            If VMSS is scaling down, delete VM from DB and VMSS.
+        """
+        if task_status == TASK_COMPLETED:
+            # STOPPING
+            # Parse the tag and instance id out to confirm which VMSS to modify
+            vmss_name, instance_id = machine.label.split("_")
+            # If we aren't scaling down, then reimage
+            if not machine_pools[vmss_name]["is_scaling_down"]:
+                with reimage_lock:
+                    reimage_vm_list.append({"vmss": vmss_name, "id": instance_id, "time_added": time.time()})
+                # Two stages until the VM can be consider reimaged
+                # Stage 1: Label is not in queue-list
+                # Stage 2: Label is not in vms_currently_being_reimaged
+                # It can be assumed that at this point in time that the label is in the reimage_vm_list
+                label_in_reimage_vm_list = True
+                # Wait for a reimage_worker thread to process the VM.
+                while label_in_reimage_vm_list or machine.label in vms_currently_being_reimaged:
+                    time.sleep(5)
+                    with reimage_lock:
+                        label_in_reimage_vm_list = machine.label in [f"{vm['vmss']}_{vm['id']}" for vm in reimage_vm_list]
+
+            # RELEASING
+            if machine.label in vms_absent_from_vmss:
+                self.delete_machine(machine.label, delete_from_vmss=False)
+                vms_absent_from_vmss.remove(machine.label)
+            elif machine.label in vms_timed_out_being_reimaged:
+                self.delete_machine(machine.label)
+                vms_timed_out_being_reimaged.remove(machine.label)
+            elif machine_pools[vmss_name]["is_scaling_down"]:
+                self.delete_machine(machine.label)
+            else:
+                _ = super(Azure, self).release(machine)
+
 
     def availables(self, label=None, platform=None, tags=None, arch=None, include_reserved=False, os_version=None):
         """
