@@ -462,6 +462,7 @@ class AnalysisManager(threading.Thread):
                 # Put the task back in pending so that the schedule can attempt to
                 # choose a new machine.
                 self.db.set_status(self.task.id, TASK_PENDING)
+            with self.db.session.begin():
                 self.machinery_manager.run_callback(TASK_PENDING, self.machine)
             raise
         else:
