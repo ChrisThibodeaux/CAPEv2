@@ -759,6 +759,8 @@ function replace_qemu_clues_public() {
     _sed_aux 's/"BOCHS "/"ALASKA"/g' qemu*/include/hw/acpi/aml-build.h 'BOCHS was not replaced in block/bochs.c'
     _sed_aux 's/Bochs Pseudo/Intel RealTime/g' qemu*/roms/ipxe/src/drivers/net/pnic.c 'Bochs Pseudo was not replaced in roms/ipxe/src/drivers/net/pnic.c'
     _sed_aux 's/BXPC/'"$BXPC_REPLACER"'/g' qemu*/include/hw/acpi/aml-build.h 'BXPC was not replaced in include/hw/acpi/aml-build.h'
+    _sed_aux 's/aml_string("QEMU0002")/aml_string("ACPI0007")/g' qemu*/hw/i386/fw_cfg.c 'DSDT device ID was not replaced in /hw/i386/fw_cfg.c'
+    _sed_aux 's/"QEMU0002"/"ACPI0007"/g' qemu*/hw/nvram/fw_cfg_acpi.c 'ACPI device ID was not replaced in /hw/nvram/fw_cfg_acpi.c'
 }
 
 function replace_seabios_clues_public() {
@@ -775,6 +777,9 @@ function replace_seabios_clues_public() {
     _sed_aux "s/01\/01\/2011/$src_fw_smbios_date/g" src/fw/smbios.c 'change seabios date 3'
     _sed_aux 's/"SeaBios"/"AMIBios"/g' src/fw/biostables.c 'change seabios to amibios'
     _sed_aux 's/"SeaBIOS"/"AMIBios"/g' src/fw/biostables.c 'change seabios to amibios'
+    _sed_aux 's/SeaBIOS VBE(C) 2011/Intel(R) Display Controller (C) 2020/g' seabios*/vgasrc/vbe.c 'VBE OEM identifier string was not replaced in vbe.c'
+    _sed_aux 's/SeaBIOS Developers/Intel Corporation/g' seabios*/vgasrc/vbe.c 'VBE vendor ID string was not replaced in vbe.c'
+    _sed_aux 's/SeaBIOS VBE Adapter/Intel(R) HD Graphics Adapter/g' seabios*/vgasrc/vbe.c 'VBE product name string was not replaced in vbe.c'
 
     FILES=(
         src/hw/blockcmd.c

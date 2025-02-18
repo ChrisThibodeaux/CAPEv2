@@ -384,6 +384,7 @@ def index(request, task_id=None, resubmit_hash=None):
             "options": options,
             "only_extraction": False,
             "user_id": request.user.id or 0,
+            "username": request.user.username or None,
             "package": package,
         }
         if opt_apikey:
@@ -747,6 +748,374 @@ def index(request, task_id=None, resubmit_hash=None):
             "submission/index.html",
             {
                 "title": "Submit",
+                "packages": sorted(packages, key=lambda i: i["name"].lower()),
+                "machines": machines,
+                "vpns": vpns_data,
+                "random_route": random_route,
+                "socks5s": socks5s_data,
+                "route": routing.routing.route,
+                "internet": routing.routing.internet,
+                "inetsim": routing.inetsim.enabled,
+                "tor": routing.tor.enabled,
+                "config": enabledconf,
+                "resubmit": resubmit_hash,
+                "tags": all_vms_tags,
+                "existent_tasks": existent_tasks,
+                "all_exitnodes": list(sorted(load_vms_exits())),
+            },
+        )
+
+
+@conditional_login_required(login_required, settings.WEB_AUTHENTICATION)
+def quick(request, task_id=None, resubmit_hash=None):
+    remote_console = False
+
+    if request.method == "POST":
+        if request.POST.get("route"):
+            route = request.POST.get("route")
+        (
+            static,
+            package,
+            timeout,
+            priority,
+            options,
+            machine,
+            platform,
+            tags,
+            custom,
+            memory,
+            clock,
+            enforce_timeout,
+            shrike_url,
+            shrike_msg,
+            shrike_sid,
+            shrike_refer,
+            unique,
+            referrer,
+            tlp,
+            tags_tasks,
+            route,
+            cape,
+        ) = parse_request_arguments(request)
+
+        # This is done to remove spaces in options but not breaks custom paths
+        options = ",".join(
+            "=".join(value.strip() for value in option.split("=", 1)) for option in options.split(",") if option and "=" in option
+        )
+        opt_filename = get_user_filename(options, custom)
+
+        if not timeout:
+            timeout = 120
+        else:
+            if timeout > 360:
+                timeout = 360
+            elif timeout < 30:
+                timeout = 30
+
+        if options:
+            options += ","
+
+        if referrer:
+            options += "referrer=%s," % (referrer)
+
+        if route and route not in ("", "internet"):
+            route = ""
+
+        # NOTE: Setting to interactive/manual ALWAYS disables automated interactions.
+        # 
+        # Unless disabled, automated interactions will visibly occur if a user follows the "view desktop" link\
+        # provided after an analysis submission with "Interactive desktop" not enabled.
+        if web_conf.guacamole.enabled:
+            if request.POST.get("interactive"):
+                remote_console = True
+                options += "interactive=1,"
+                if "nohuman=yes," not in options:
+                    options += "nohuman=yes,"
+                if request.POST.get("manual"):
+                    options += "manual=1,"
+
+        job_category = False
+        if request.POST.get("job_category"):
+            job_category = request.POST.get("job_category")
+
+        options = options[:-1]
+
+        task_category = False
+        samples = []
+        if "sample" in request.FILES:
+            task_category = "sample"
+            samples = request.FILES.getlist("sample")
+            options += "amsidump=1,syscall=1,"
+            priority = 2
+        elif "static" in request.FILES:
+            task_category = "static"
+            samples = request.FILES.getlist("static")
+            priority = 1
+        elif "url" in request.POST and request.POST.get("url").strip():
+            task_category = "url"
+            samples = request.POST.get("url").strip()
+            options += "amsidump=1,syscall=1,"
+            priority = 2
+        elif "dlnexec" in request.POST and request.POST.get("dlnexec").strip():
+            task_category = "dlnexec"
+            samples = request.POST.get("dlnexec").strip()
+            options += "amsidump=1,syscall=1,"
+            priority = 2
+
+        if request.POST.get("interactive") or request.POST.get("manual"):
+            # Give interactive tasks highest prio => lowest wait time before running
+            priority = 3
+
+        status = "ok"
+        existent_tasks = {}
+        details = {
+            "errors": [],
+            "content": False,
+            "request": request,
+            "task_ids": [],
+            "url": False,
+            "params": {},
+            "headers": {},
+            "service": "Local",
+            "path": "",
+            "fhash": False,
+            "options": options,
+            "only_extraction": False,
+            "user_id": request.user.id or 0,
+            "username": request.user.username or None,
+            "package": package,
+        }
+
+        list_of_tasks = []
+        if task_category in ("url", "dlnexec"):
+            if not samples:
+                return render(request, "error.html", {"error": "You specified an invalid URL!"})
+
+            for url in samples.split(","):
+                url = url.replace("hxxps://", "https://").replace("hxxp://", "http://").replace("[.]", ".")
+                if task_category == "dlnexec":
+                    path, content, sha256 = process_new_dlnexec_task(url, route, options, custom)
+                    if path:
+                        list_of_tasks.append((content, path, sha256))
+                elif task_category == "url":
+                    list_of_tasks.append(("", url, ""))
+
+        elif task_category in ("sample", "static"):
+            list_of_tasks, details = process_new_task_files(request, samples, details, opt_filename, unique)
+
+        # Hack for resubmit first find all files and then put task as proper category
+        if job_category and job_category in ("sample", "static", "dlnexec"):
+            task_category = job_category
+
+        elif task_category == "sample":
+            details["service"] = "WebGUI"
+            for content, path, sha256 in list_of_tasks:
+                details["path"] = path
+                details["content"] = content
+                status, tasks_details = download_file(**details)
+                if status == "error":
+                    details["errors"].append({os.path.basename(path): tasks_details})
+                else:
+                    details["task_ids"] = tasks_details.get("task_ids")
+                    if tasks_details.get("errors"):
+                        details["errors"].extend(tasks_details["errors"])
+                    if web_conf.general.get("existent_tasks", False):
+                        records = perform_search("target_sha256", sha256, search_limit=5)
+                        if records:
+                            for record in records:
+                                if record.get("target").get("file", {}).get("sha256"):
+                                    existent_tasks.setdefault(record["target"]["file"]["sha256"], []).append(record)
+
+        elif task_category == "static":
+            for content, path, sha256 in list_of_tasks:
+                task_id = db.add_static(
+                    file_path=path,
+                    priority=priority,
+                    tlp=tlp,
+                    tags_tasks=tags_tasks,
+                    options=options,
+                    user_id=request.user.id or 0,
+                    username=request.user.username or None
+                )
+                if not task_id:
+                    return render(request, "error.html", {"error": "We don't have static extractor for this"})
+                details["task_ids"] += task_id
+
+        elif task_category == "url":
+            for _, url, _ in list_of_tasks:
+                if machine.lower() == "all":
+                    machines = [vm.name for vm in db.list_machines(platform=platform)]
+                elif machine:
+                    machine_details = db.view_machine(machine)
+                    if platform and hasattr(machine_details, "platform") and not machine_details.platform == platform:
+                        details["errors"].append(
+                            {os.path.basename(url): f"Wrong platform, {machine_details.platform} VM selected for {platform} sample"}
+                        )
+                        continue
+                    else:
+                        machines = [machine]
+
+                else:
+                    machines = [None]
+                for entry in machines:
+                    task_id = db.add_url(
+                        url=url,
+                        package=package,
+                        timeout=timeout,
+                        priority=priority,
+                        options=options,
+                        machine=entry,
+                        platform=platform,
+                        tags=tags,
+                        custom=custom,
+                        memory=memory,
+                        enforce_timeout=enforce_timeout,
+                        clock=clock,
+                        shrike_url=shrike_url,
+                        shrike_msg=shrike_msg,
+                        shrike_sid=shrike_sid,
+                        shrike_refer=shrike_refer,
+                        route=route,
+                        cape=cape,
+                        tags_tasks=tags_tasks,
+                        user_id=request.user.id or 0,
+                    )
+                    details["task_ids"].append(task_id)
+
+        elif task_category == "dlnexec":
+            for content, path, sha256 in list_of_tasks:
+                details["path"] = path
+                details["content"] = content
+                details["service"] = "DLnExec"
+                details["source_url"] = samples
+                status, tasks_details = download_file(**details)
+                if status == "error":
+                    details["errors"].append({os.path.basename(path): tasks_details})
+                else:
+                    details["task_ids"] = tasks_details.get("task_ids")
+                    if tasks_details.get("errors"):
+                        details["errors"].extend(tasks_details["errors"])
+
+        if details.get("task_ids"):
+            tasks_count = len(details["task_ids"])
+        else:
+            tasks_count = 0
+        if tasks_count > 0:
+            data = {
+                "title": "Submission",
+                "tasks": details["task_ids"],
+                "tasks_count": tasks_count,
+                "errors": details["errors"],
+                "existent_tasks": existent_tasks,
+                "remote_console": remote_console,
+            }
+            return render(request, "submission/complete.html", data)
+        else:
+            err_data = {
+                "error": "Error adding task(s) to CAPE's database.",
+                "errors": details["errors"],
+                "title": "Submission Failure",
+            }
+            return render(request, "error.html", err_data)
+    else:
+        enabledconf = {}
+        enabledconf["vt"] = settings.VTDL_ENABLED
+        enabledconf["bazaar"] = settings.BAZAAR_ENABLED
+        enabledconf["kernel"] = settings.OPT_ZER0M0N
+        enabledconf["memory"] = processing.memory.get("enabled")
+        enabledconf["procmemory"] = processing.procmemory.get("enabled")
+        enabledconf["dlnexec"] = settings.DLNEXEC
+        enabledconf["url_analysis"] = settings.URL_ANALYSIS
+        enabledconf["tags"] = False
+        enabledconf["dist_master_storage_only"] = distconf.distributed.master_storage_only
+        enabledconf["linux_on_gui"] = web_conf.linux.enabled
+        enabledconf["tlp"] = web_conf.tlp.enabled
+        enabledconf["timeout"] = cfg.timeouts.default
+        enabledconf["amsidump"] = web_conf.amsidump.enabled
+        enabledconf["pre_script"] = web_conf.pre_script.enabled
+        enabledconf["during_script"] = web_conf.during_script.enabled
+
+        all_vms_tags = load_vms_tags()
+
+        if all_vms_tags:
+            enabledconf["tags"] = True
+
+        if not enabledconf["tags"]:
+            # load multi machinery tags:
+            # Get enabled machinery
+            machinery = cfg.cuckoo.get("machinery")
+            machinery_tags = "scale_sets" if machinery == "az" else "machines"
+            if machinery == "multi":
+                for mmachinery in Config(machinery).multi.get("machinery").split(","):
+                    vms = [x.strip() for x in getattr(Config(mmachinery), mmachinery).get(machinery_tags).split(",") if x.strip()]
+                    if any(["tags" in list(getattr(Config(mmachinery), vmtag).keys()) for vmtag in vms]):
+                        enabledconf["tags"] = True
+                        break
+            else:
+                # Get VM names for machinery config elements
+                vms = [x.strip() for x in str(getattr(Config(machinery), machinery).get(machinery_tags)).split(",") if x.strip()]
+                # Check each VM config element for tags
+                if any(["tags" in list(getattr(Config(machinery), vmtag).keys()) for vmtag in vms]):
+                    enabledconf["tags"] = True
+
+        packages, machines = get_form_data()
+
+        socks5s = _load_socks5_operational()
+
+        socks5s_random = ""
+        vpn_random = ""
+
+        if routing.socks5.random_socks5 and socks5s:
+            socks5s_random = socks5s[random.choice(list(socks5s.keys()))]
+
+        if routing.vpn.random_vpn and vpns:
+            vpn_random = vpns[random.choice(list(vpns.keys()))]
+
+        random_route = False
+        if vpn_random and socks5s_random:
+            random_route = random.choice((vpn_random, socks5s_random))
+        elif vpn_random:
+            random_route = vpn_random
+        elif socks5s_random:
+            random_route = socks5s_random
+
+        # prepare data for the gui rendering
+        if random_route:
+            if random_route is vpn_random:
+                random_route = {
+                    "name": random_route["name"],
+                    "description": random_route["description"],
+                    "interface": random_route["interface"],
+                    "type": "VPN",
+                }
+            else:
+                random_route = {
+                    "name": random_route["description"],
+                    "host": random_route["host"],
+                    "port": random_route["port"],
+                    "type": "SOCKS5",
+                }
+        socks5s_data = [
+            {"name": v["description"], "host": v["host"], "port": v["port"], "type": "socks5"} for k, v in socks5s.items()
+        ]
+        vpns_data = [
+            {"name": v["name"], "description": v["description"], "interface": v["interface"], "type": "vpn"} for v in vpns.values()
+        ]
+
+        existent_tasks = {}
+        if resubmit_hash:
+            if web_conf.general.get("existent_tasks", False):
+                records = perform_search("target_sha256", resubmit_hash, search_limit=5)
+                if records:
+                    for record in records:
+                        existent_tasks.setdefault(record["target"]["file"]["sha256"], [])
+                        existent_tasks[record["target"]["file"]["sha256"]].append(record)
+
+        return render(
+            request,
+            "submission/quick.html",
+            {
+                "title": "Quick Submit",
                 "packages": sorted(packages, key=lambda i: i["name"].lower()),
                 "machines": machines,
                 "vpns": vpns_data,

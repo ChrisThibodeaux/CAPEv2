@@ -34,7 +34,7 @@ if not settings.EMAIL_CONFIRMATION:
 
 @receiver(email_confirmed)
 def email_confirmed_(request, email_address, **kwargs):
-    user = User.objects.get(email=email_address.email)
+    user = email_address.user
     user.is_active = not settings.MANUAL_APPROVE
     user.save()
 

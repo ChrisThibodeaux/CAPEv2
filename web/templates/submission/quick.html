@@ -1,0 +1,373 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+    .btn-file {
+        position: relative;
+        overflow: hidden;
+    }
+
+    .btn-file input[type=file] {
+        position: absolute;
+        top: 0;
+        right: 0;
+        min-width: 100%;
+        min-height: 100%;
+        font-size: 999px;
+        text-align: right;
+        filter: alpha(opacity=0);
+        opacity: 0;
+        background: red;
+        cursor: inherit;
+        display: block;
+    }
+
+    .drag-hover {
+        outline: none;
+        border-color: transparent;
+        background-color: rgba(0, 0, 0, 0.15);
+        box-shadow:
+            inset 0 0 0 1px rgba(255, 255, 255, 0.6),
+            0 0 0 1px rgba(255, 255, 255, 0.65),
+            0 0 2px 2px rgba(255, 255, 255, 0.55),
+            0 0 4px 3px rgba(255, 255, 255, 0.45);
+        transition:
+            box-shadow 0.2s ease-in-out,
+            background-color 0.2s ease-in-out;
+    }
+
+    input[readonly] {
+        background-color: white !important;
+        cursor: text !important;
+    }
+</style>
+<script type='text/javascript'>
+    $(document).ready(function () {
+        // Common function to handle file selection updates
+        function updateFileSelection($input, numFiles, label) {
+            var $textInput = $input.parents('.input-group').find(':text'),
+                log = numFiles > 1 ? numFiles + ' files selected' : label;
+
+            if ($textInput.length) {
+                $textInput.val(log);
+            } else if (log) {
+                alert(log);
+            }
+        }
+
+        // Common function to update file input name based on active tab
+        function updateFileInputName() {
+            // Get the active tab's href attribute
+            var activeTabId = $('.nav-link.active').attr('href');
+            var inputName = 'static'; // default name
+
+            // Determine input name based on active tab
+            switch (activeTabId) {
+                case '#static':
+                    inputName = 'static';
+                    break;
+                case '#file':
+                    inputName = 'sample';
+                    break;
+                default:
+                    inputName = 'static'; // fallback to default
+            }
+
+            // Update name attribute of file input in active tab
+            $(activeTabId + ' .btn-file :file').attr('name', inputName);
+        }
+
+        // Original file input change handler
+        $('.btn-file :file').on('fileselect', function (event, numFiles, label) {
+            updateFileSelection($(this), numFiles, label);
+            updateFileInputName();
+        });
+
+        // File input change event
+        $(document).on('change', '.btn-file :file', function () {
+            var $input = $(this),
+                numFiles = $input.get(0).files ? $input.get(0).files.length : 1,
+                label = $input.val().replace(/\\/g, '/').replace(/.*\//, '');
+            $input.trigger('fileselect', [numFiles, label]);
+        });
+
+        // Drag and drop functionality
+        var $dropZone = $('.input-group .form-control[readonly]');
+        var $fileInput = $('.btn-file :file');
+
+        // Prevent default drag behaviors
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(function (eventName) {
+            $dropZone.on(eventName, function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+            });
+        });
+
+        // Add visual feedback during drag
+        $dropZone.on('dragenter dragover', function () {
+            $(this).addClass('drag-hover');
+        });
+
+        $dropZone.on('dragleave drop', function () {
+            $(this).removeClass('drag-hover');
+        });
+
+        // Handle the drop event
+        $dropZone.on('drop', function (e) {
+            var files = e.originalEvent.dataTransfer.files;
+            var numFiles = files.length;
+            var label = numFiles === 1 ? files[0].name : numFiles + ' files selected';
+
+            // Find the file input within the same tab pane as the drop target
+            var $fileInput = $(this).closest('.tab-pane').find('.btn-file :file');
+
+            // Update the file input with the dropped files
+            if ($fileInput.length) {
+                $fileInput[0].files = files;
+
+                // Update the visual feedback
+                updateFileSelection($fileInput, numFiles, label);
+
+                // Trigger change event for any additional listeners
+                $fileInput.trigger('change');
+            }
+        });
+
+        function setDefaultContent() {
+            document.getElementById('non-pcap-1').style.display = "none";
+        }
+
+        // Enhanced tab handling code
+        $('.nav-tabs a').on('shown.bs.tab', function (event) {
+            var tabname = $(event.target).text();
+
+            // Static visibility logic
+            if (tabname == " Rapid") {
+                document.getElementById('non-pcap-1').style.display = "none";
+            } else {
+                document.getElementById('non-pcap-1').style.display = "block";
+            }
+
+            // Clear inputs when switching tabs
+            $('.btn-file :file').val('');
+            $('.input-group .form-control[readonly]').val('Drop files or browse to select');
+            $('#form_timeout').val(120);
+            $('#form_timeout').next().val(120);
+            // $('input[name="url"], input[name="dlnexec"]').val('');
+            $('input[name="url"]').val('');
+
+            // Reset checkbox inputs
+            clearCheckboxStates();
+            // Update file input name for new tab
+            updateFileInputName();
+        });
+
+        // Make readonly input clickable
+        $('.input-group .form-control[readonly]').on('click', function () {
+            // Find the associated file input within the same input-group
+            $(this).closest('.input-group').find(':file').trigger('click');
+        });
+
+        // Get checkbox elements
+        const interactiveCheckbox = $('input[name="interactive"]');
+        const manualCheckbox = $('input[name="manual"]');
+
+        function clearCheckboxStates() {
+            manualCheckbox.prop('checked', false)
+            manualCheckbox.prop('disabled', false)
+            interactiveCheckbox.prop('checked', false)
+            interactiveCheckbox.prop('disabled', false)
+        }
+
+        // Function to handle checkbox state changes
+        function updateCheckboxStates() {
+            // Handle checking/unchecking
+            if (manualCheckbox.prop('checked')) {
+                interactiveCheckbox.prop('checked', true);
+            } else if (manualCheckbox.data('was-checked')) {
+                // Manual was just unchecked
+                interactiveCheckbox.prop('checked', false);
+            }
+
+            // Handle the disabled states
+            if (manualCheckbox.prop('checked')) {
+                // Manual checked: disable others
+                interactiveCheckbox.prop('disabled', true);
+            } else if (interactiveCheckbox.prop('checked')) {
+                // Interactive checked: disable nohuman only
+                interactiveCheckbox.prop('disabled', false);
+                manualCheckbox.prop('disabled', false);
+            } else {
+                // Nothing checked or manual just unchecked: enable all
+                interactiveCheckbox.prop('disabled', false);
+                manualCheckbox.prop('disabled', false);
+            }
+
+            // Store current states for next change
+            manualCheckbox.data('was-checked', manualCheckbox.prop('checked'));
+            interactiveCheckbox.data('was-checked', interactiveCheckbox.prop('checked'));
+        }
+
+        // Listeners for checkbox selections
+        interactiveCheckbox.on('change', updateCheckboxStates);
+        manualCheckbox.on('change', updateCheckboxStates);
+
+        // Initial state check
+        updateCheckboxStates();
+        // Initialize correct input name on page load
+        updateFileInputName();
+        setDefaultContent();
+
+        // tooltips
+        $('[data-toggle="tooltip"]').tooltip();
+    });
+</script>
+<div class="row">
+    <div class="col-md-6 col-md-offset-3 mx-auto">
+        <form role="form" action="" method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            <div class="tabbable">
+                <ul class="nav nav-tabs">
+                    <li class="nav-item active"><a class="nav-link active" href="#static" data-toggle="tab"><span
+                                class="fa fa-tasks"></span> Static</a></li>
+                    <li class="nav-item"><a class="nav-link" href="#file" data-toggle="tab"><span
+                                class="fa fa-file"></span> JUCY Lite</a></li>
+                    {% if config.url_analysis %}
+                    <li class="nav-item"><a class="nav-link" href="#url" data-toggle="tab"><span
+                                class="fa fa-globe"></span> URL</a></li>
+                    {% endif %}
+                    <!-- {% if config.dlnexec %}
+                    <li class="nav-item"><a class="nav-link" href="#dlurl" data-toggle="tab"><span
+                                class="fa fa-download"></span> DL&Exec</a></li>
+                    {% endif %} -->
+                </ul>
+                <div class="tab-content">
+                    {% if resubmit %}
+                    <div class="tab-pane fade show active" id="resubmit">
+                        <div class="input-group mb-3">
+                            <label class="sr-only" form="form_resubmission"> File resubmission</label>
+                            <input type="text" class="form-control" id="form_resubmission" name="hash"
+                                value="{{resubmit}}" />
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="tab-pane fade show active" id="static">
+                        <div class="input-group">
+                            <input type="text" class="form-control" value="Drop files or browse to select"
+                                readonly>
+                            <span class="btn btn-secondary btn-file">
+                                Select <input type="file" multiple="multiple">
+                            </span>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade show" id="file">
+                        <div class="input-group">
+                            <input type="text" class="form-control" value="Drop files or browse to select"
+                                readonly>
+                            <span class="btn btn-secondary btn-file">
+                                Select <input type="file" multiple="multiple">
+                            </span>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade show" id="url">
+                        <div class="input-group col-md-12">
+                            <label class="sr-only" form="form_url">URL</label>
+                            <input type="text" class="form-control" id="form_url" name="url" placeholder="URL" />
+                        </div>
+                    </div>
+                    {% if config.dlnexec %}
+                    <div class="tab-pane fade show" id="dlurl">
+                        <div class="input-group col-md-12">
+                            <label class="sr-only" form="form_url">URL</label>
+                            <input type="text" class="form-control" id="form_url" name="dlnexec"
+                                placeholder="URL to download sample from" />
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+            <div class="panel" id="non-pcap-1" id="accordion" style="margin-top: 20px;">
+                <div class="card " style="margin-bottom: 0px;">
+                    <div class="card-header">
+                        <a class="accordion-toggle" data-toggle="collapse" data-parent="#accordion" href="#options"><i
+                                class="icon icon-cog"></i> Options</a>
+                    </div>
+                    <div id="options" class="panel-collapse collapse show" style="text-align: left;">
+                        <div class="card-body">
+                            <div>
+                                {% if resubmit %}
+                                <div class="form-group">
+                                    <label for="form_job_category">Task Category</label>
+                                    <select class="form-control" id="form_job_category" name="job_category">
+                                        <option value="hash" checked>Resubmit</option>
+                                        <option value="sample">Files</option>
+                                        <option value="static">Static analysis</option>
+                                        <option value="pcap">Pcap</option>
+                                        <option value="dlnexec">Download and Execute</option>
+                                    </select>
+                                </div>
+                                {% endif %}
+                                <div class="form-group">
+                                    <strong>Timeout (in seconds)</strong>
+                                </div>
+                                <div class="form-group">
+                                    <input type="range" id="form_timeout" name="timeout" value="120" min="30" max="360"
+                                        oninput="this.nextElementSibling.value = this.value">
+                                    <output>120</output>
+                                </div>
+                                <div class="form-check">
+                                    <div class="custom-control custom-switch">
+                                        <input
+                                            type="checkbox"
+                                            class="custom-control-input"
+                                            id="route_switch"
+                                            name="route"
+                                            value="internet"
+                                            {% if route == "internet" %}checked{% endif %}
+                                            {% if route == "none" %}disabled{% endif %}
+                                        />
+                                        <label class="custom-control-label" for="route_switch"><strong>Networking Enabled</strong></label>
+                                    </div>
+                                </div>
+                                <div class="form-check">
+                                    <div class="custom-control custom-switch" title="Disables automated interactions.">
+                                        <input
+                                            type="checkbox"
+                                            class="custom-control-input"
+                                            name="interactive"
+                                            id="interactive_switch"
+                                        />
+                                        <label class="custom-control-label" for="interactive_switch"><strong>Interactive analysis</strong></label>
+                                    </div>
+                                </div>
+                                <div class="form-check">
+                                    <div class="custom-control custom-switch" title="Must be used with Interactive analysis. Disables automated interactions.">
+                                        <input
+                                            type="checkbox"
+                                            class="custom-control-input"
+                                            name="manual"
+                                            id="manual_switch"
+                                        />
+                                        <label class="custom-control-label" for="manual_switch"><strong>Manual detonation</strong></label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="input-group" style="margin-top: 20px;">
+                <div class="input-group-prepend">
+                    <div class="input-group-text">Task Tags</div>
+                </div>
+                <input type="text" class="form-control" id="form_tags_tasks" name="tags_tasks"
+                    placeholder="Username">
+            </div>
+            <center>
+                <div style="margin-top: 20px;"><button type="submit" class="btn btn-secondary btn-lg">Analyze</button>
+                </div>
+            </center>
+        </form>
+    </div>
+</div>
+{% endblock %}
