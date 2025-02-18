@@ -1,9 +1,47 @@
 {% extends "base.html" %}
 {% load analysis_tags %}
 {% block content %}
+<script type='text/javascript'>
+    $(document).ready(function() {
+        // Disable transitions temporarily
+        $('.tab-pane').removeClass('fade');
+        
+        // Force tab state on page load
+        var currentTab = localStorage.getItem('currentTab') || '#files';
+        
+        // Remove all active states
+        $('.nav-link').removeClass('active');
+        $('.tab-pane').removeClass('show active');
+        
+        // Set correct tab state
+        $('a[href="' + currentTab + '"]').addClass('active');
+        $(currentTab).addClass('show active');
+        
+        // Handle tab changes
+        $('a[data-toggle="tab"]').on('click', function(e) {
+            e.preventDefault();
+            var tabId = $(this).attr('href');
+            
+            // Store state
+            localStorage.setItem('currentTab', tabId);
+            
+            // Manual tab handling
+            $('.nav-link').removeClass('active');
+            $('.tab-pane').removeClass('show active');
+            
+            $(this).addClass('active');
+            $(tabId).addClass('show active');
+        });
+        
+        // Re-enable transitions
+        setTimeout(function() {
+            $('.tab-pane').addClass('fade');
+        }, 100);
+    });
+</script>
 <ul class="nav nav-tabs">
-    <li class="nav-item"><a class="nav-link active" href="#files" data-toggle="tab">Files</a></li>
     <li class="nav-item"><a class="nav-link" href="#static" data-toggle="tab">Static</a></li>
+    <li class="nav-item"><a class="nav-link" href="#files" data-toggle="tab">JUCY Runs</a></li>
     {% if config.url_analysis %}
         <li class="nav-item"><a class="nav-link" href="#urls" data-toggle="tab">URLs</a></li>
     {% endif %}
@@ -43,7 +81,8 @@
                     <th width="10%">Timestamp</th>
                     <th width="10%">Machine</th>
                     <th width="8%">Package</th>
-                    <th width="33%">Filename</th>
+                    <th width="23%">Filename</th>
+                    <th width="10%">Activity</th>
                     <th width="18%">MD5</th>
                     <th width="7%">Detections</th>
 
@@ -121,6 +160,21 @@
                             {{analysis.filename}}
                             {% endif %}
                         </td>
+                        {% if config.malscore %}
+                        <td>
+                            {% if analysis.malscore != None %}
+                                {% if analysis.malscore <= 2.0 %}
+                                <span class="badge badge-info">No threat detected</span>
+                                {% elif analysis.malscore <= 6.0 %}
+                                <span class="badge badge-warning">Suspicious activity</span>
+                                {% else %}
+                                <span class="badge badge-danger">Malicious activity</span>
+                                {% endif %}
+                            {% else %}
+                                <span class="mono">-</span>
+                            {% endif %}
+                        </td>
+                        {% endif %}
                         <td style="word-wrap: break-word;">
                             {% if analysis.status in "reported,recovered" %}
                                 <a href="{% url "report" analysis.id %}"><span class="mono">{{analysis.sample.md5}}</span></a>
@@ -217,7 +271,7 @@
                             {% if analysis.malscore != None %}
                                 <span
                                 {% if analysis.malscore <= 2.0 %}
-                                class="badge badge-success"
+                                class="badge badge-info"
                                 {% elif analysis.malscore <= 6.0 %}
                                 class="badge badge-warning"
                                 {% else %}
@@ -347,7 +401,8 @@
                 <tr>
                     <th width="5%">ID</th>
                     <th width="10%">Timestamp</th>
-                    <th width="33%">Filename</th>
+                    <th width="23%">Filename</th>
+                    <th width="10%">Activity</th>
                     <th width="18%">MD5</th>
                     <th width="7%">Detections</th>
                     {% if config.display_task_tags %}
@@ -395,6 +450,21 @@
                         <td>
                         {{analysis.filename}}
                         </td>
+                        {% if config.malscore %}
+                        <td>
+                            {% if analysis.malscore != None %}
+                                {% if analysis.malscore <= 2.0 %}
+                                <span class="badge badge-info">No threat detected</span>
+                                {% elif analysis.malscore <= 6.0 %}
+                                <span class="badge badge-warning">Suspicious activity</span>
+                                {% else %}
+                                <span class="badge badge-danger">Malicious activity</span>
+                                {% endif %}
+                            {% else %}
+                                <span class="mono">-</span>
+                            {% endif %}
+                        </td>
+                        {% endif %}
                         <td style="word-wrap: break-word;">
                             {% if analysis.status in "reported,recovered" %}
                                 <a href="{% url "report" analysis.id %}"><span class="mono">{{analysis.sample.md5}}</span></a>
@@ -597,7 +667,8 @@
                   {% if config.expanded_dashboard %}
                     <th width="5%">ID</th>
                     <th width="10%">Timestamp</th>
-                    <th width="30%">URL</th>
+                    <th width="20%">URL</th>
+                    <th width="10%">Activity</th>
                     {% if config.moloch %}
                     <th width="5%">Moloch</th>
                     {% endif %}
@@ -622,7 +693,8 @@
                   {% else %}
                     <th width="5%">ID</th>
                     <th width="12%">Timestamp</th>
-                    <th width="61%">URL</th>
+                    <th width="51%">URL</th>
+                    <th width="10%">Activity</th>
                     {% if config.moloch %}
                     <th width="5%">Moloch</th>
                     {% endif %}
@@ -667,6 +739,21 @@
                                 <span class="mono">{{analysis.target}}</span>
                             {% endif %}
                         </td>
+                        {% if config.malscore %}
+                        <td>
+                            {% if analysis.malscore != None %}
+                                {% if analysis.malscore <= 2.0 %}
+                                <span class="badge badge-info">No Threat Detected</span>
+                                {% elif analysis.malscore <= 6.0 %}
+                                <span class="badge badge-warning">Suspicious activity</span>
+                                {% else %}
+                                <span class="badge badge-danger">Malicious activity</span>
+                                {% endif %}
+                            {% else %}
+                                <span class="mono">-</span>
+                            {% endif %}
+                        </td>
+                        {% endif %}
                         {% if config.moloch %}
                         <td>
                             {% if analysis.moloch_url %}
@@ -730,7 +817,7 @@
                             {% if analysis.malscore != None %}
                                 <span
                                 {% if analysis.malscore <= 2.0 %}
-                                class="badge badge-success"
+                                class="badge badge-info"
                                 {% elif analysis.malscore <= 6.0 %}
                                 class="badge badge-warning"
                                 {% else %}
@@ -968,7 +1055,7 @@
                     <td>
                         {% if analysis.malscore != None %}
                         <span {% if analysis.malscore <= 2.0 %}
-                            class="badge badge-success"
+                            class="badge badge-info"
                         {% elif analysis.malscore <= 6.0 %}
                             class="badge badge-warning"
                         {% else %}

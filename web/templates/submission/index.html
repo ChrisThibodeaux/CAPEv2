@@ -19,35 +19,119 @@
     cursor: inherit;
     display: block;
 }
+.drag-hover {
+    outline: none;
+    border-color: transparent;
+    background-color: rgba(0, 0, 0, 0.15);
+    box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.6),
+        0 0 0 1px rgba(255, 255, 255, 0.65),
+        0 0 2px 2px rgba(255, 255, 255, 0.55),
+        0 0 4px 3px rgba(255, 255, 255, 0.45);
+    transition: 
+        box-shadow 0.2s ease-in-out,
+        background-color 0.2s ease-in-out;
+}
 input[readonly] {
     background-color: white !important;
     cursor: text !important;
 }
 </style>
 <script type='text/javascript'>
-$(document)
-    .on('change', '.btn-file :file', function() {
-        var input = $(this),
-        numFiles = input.get(0).files ? input.get(0).files.length : 1,
-        label = input.val().replace(/\\/g, '/').replace(/.*\//, '');
-        input.trigger('fileselect', [numFiles, label]);
-});
-
-$(document).ready( function() {
-    $('.btn-file :file').on('fileselect', function(event, numFiles, label) {
-
-        var input = $(this).parents('.input-group').find(':text'),
+$(document).ready(function() {
+    // Common function to handle file selection updates
+    function updateFileSelection($input, numFiles, label) {
+        var $textInput = $input.parents('.input-group').find(':text'),
             log = numFiles > 1 ? numFiles + ' files selected' : label;
 
-        if( input.length ) {
-            input.val(log);
-        } else {
-            if( log ) alert(log);
+        if ($textInput.length) {
+            $textInput.val(log);
+        } else if (log) {
+            alert(log);
         }
+    }
 
+    // Common function to update file input name based on active tab
+    function updateFileInputName() {
+        var activeTabId = $('.nav-tabs .active').attr('href');
+        var inputName = 'sample'; // default
+        
+        switch(activeTabId) {
+            case '#static':
+                inputName = 'static';
+                break;
+            case '#pcap':
+                inputName = 'pcap';
+                break;
+            case '#file':
+                inputName = 'sample';
+                break;
+        }
+        
+        // Update name attribute of file input in active tab
+        $('.btn-file :file').attr('name', inputName);
+    }
+
+    // Original file input change handler
+    $('.btn-file :file').on('fileselect', function(event, numFiles, label) {
+        updateFileSelection($(this), numFiles, label);
     });
+
+    // File input change event
+    $(document).on('change', '.btn-file :file', function() {
+        var $input = $(this),
+            numFiles = $input.get(0).files ? $input.get(0).files.length : 1,
+            label = $input.val().replace(/\\/g, '/').replace(/.*\//, '');
+        $input.trigger('fileselect', [numFiles, label]);
+    });
+
+    // Drag and drop functionality
+    var $dropZone = $('.input-group .form-control[readonly]');
+    var $fileInput = $('.btn-file :file');
+
+    // Prevent default drag behaviors
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(function(eventName) {
+        $dropZone.on(eventName, function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        });
+    });
+
+    // Add visual feedback during drag
+    $dropZone.on('dragenter dragover', function() {
+        $(this).addClass('drag-hover');
+    });
+
+    $dropZone.on('dragleave drop', function() {
+        $(this).removeClass('drag-hover');
+    });
+
+    // Handle the drop event
+    $dropZone.on('drop', function(e) {
+        var files = e.originalEvent.dataTransfer.files;
+        var numFiles = files.length;
+        var label = numFiles === 1 ? files[0].name : numFiles + ' files selected';
+        
+        // Find the file input within the same tab pane as the drop target
+        var $fileInput = $(this).closest('.tab-pane').find('.btn-file :file');
+        
+        // Update the file input with the dropped files
+        if ($fileInput.length) {
+            $fileInput[0].files = files;
+            
+            // Update the visual feedback
+            updateFileSelection($fileInput, numFiles, label);
+            
+            // Trigger change event for any additional listeners
+            $fileInput.trigger('change');
+        }
+    });
+
+    // Enhanced tab handling code
     $('.nav-tabs a').on('show.bs.tab', function (event) {
-        var tabname = $(event.target).text()
+        var tabname = $(event.target).text();
+        
+        // Original PCAP/Static visibility logic
         if (tabname == " PCAP" || tabname == " Static") {
             document.getElementById('non-pcap-1').style.display = "none";
             document.getElementById('non-pcap-2').style.display = "none";
@@ -55,13 +139,31 @@ $(document).ready( function() {
             document.getElementById('non-pcap-1').style.display = "block";
             document.getElementById('non-pcap-2').style.display = "block";
         }
+
+        // Clear file inputs when switching tabs
+        $('.btn-file :file').val('');
+        $('.input-group .form-control[readonly]').val('Drag and drop or browse to select files');
+        
+        // Update file input name for new tab
+        updateFileInputName();
     });
+
     $('#form_package').change(function () {
         let title = $('option:selected', this).attr('title');
         $("#package_description").text(title);
     });
+
+    // Make readonly input clickable
+    $('.input-group .form-control[readonly]').on('click', function() {
+        // Find the associated file input within the same input-group
+        $(this).closest('.input-group').find(':file').trigger('click');
+    });
+
+    // Initialize correct input name on page load
+    updateFileInputName();
+
     // tooltips
-    $('[data-toggle="tooltip"]').tooltip(); 
+    $('[data-toggle="tooltip"]').tooltip();
 });
 </script>
 <div class="row">
@@ -101,29 +203,12 @@ $(document).ready( function() {
                     {% else %}
                         <div class="tab-pane fade show active" id="file">
                             <div class="input-group">
-                                    <input type="text" class="form-control" readonly>
-                                    <span class="btn btn-secondary btn-file">
-                                        Select <input type="file" name="sample" multiple="multiple">
-                                    </span>
+                                <input type="text" class="form-control" value="Drag and drop or browse to select files" readonly>
+                                <span class="btn btn-secondary btn-file">
+                                    Select <input type="file" name="sample" multiple="multiple">
+                                </span>
                             </div>
                         </div>
-
-                        {% if config.vt %}
-                        <div class="tab-pane fade show" id="vtdl">
-                            <div class="input-group col-md-12">
-                                <label class="sr-only" form="form_vtdl"> VirusTotal</label>
-                                <input type="text" class="form-control" id="form_vtdl" name="vtdl" placeholder="Enter comma separated hashes or just a hash" />
-                            </div>
-                        </div>
-                        {% endif %}
-                        {% if config.bazaar %}
-                        <div class="tab-pane fade show" id="bazaar">
-                            <div class="input-group col-md-12">
-                                <label class="sr-only" form="form_bazaar"> MalwareBazaar</label>
-                                <input type="text" class="form-control" id="form_bazaar" name="bazaar" placeholder="Enter comma separated hashes or just a hash" />
-                            </div>
-                        </div>
-                        {% endif %}
                         <div class="tab-pane fade show" id="url">
                             <div class="input-group col-md-12">
                                 <label class="sr-only" form="form_url">URL</label>
@@ -140,17 +225,17 @@ $(document).ready( function() {
                         {% endif %}
                         <div class="tab-pane fade show" id="pcap">
                             <div class="input-group">
-                                    <input type="text" class="form-control" readonly>
-                                    <span class="btn btn-secondary btn-file">
-                                        Select <input type="file" name="pcap" multiple="multiple">
-                                    </span>
+                                <input type="text" class="form-control" value="Drag and drop or browse to select files" readonly>
+                                <span class="btn btn-secondary btn-file">
+                                    Select <input type="file" name="pcap" multiple="multiple">
+                                </span>
                             </div>
                         </div>
                         <div class="tab-pane fade show" id="static">
                             <div class="input-group">
-                                    <input type="text" class="form-control" readonly>
-                                    <span class="btn btn-secondary btn-file">
-                                        Select <input type="file" name="static" multiple="multiple">
+                                <input type="text" class="form-control" value="Drag and drop or browse to select files" readonly>
+                                <span class="btn btn-secondary btn-file">
+                                    Select <input type="file" name="static" multiple="multiple">
                                 </span>
                             </div>
                         </div>
@@ -544,7 +629,7 @@ $(document).ready( function() {
                                                     <td><code>unhook-apis</code></td>
                                                     <td>Capability to dynamically unhook previously hooked functions (unhook-apis option takes colon-separated list e.g. unhook-apis=NtSetInformationThread:NtDelayExecution)</td>
                                                 </tr>
-						<tr>
+						                        <tr>
                                                     <td><code>ttd</code></td>
                                                     <td>ttd=1. TTD integration (Microsoft Time Travel Debugging). Requires binaries to be placed in correct folder</td>
                                                 </tr>
